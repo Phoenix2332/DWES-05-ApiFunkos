@@ -1,0 +1,8 @@
+﻿services:
+  apifunkos:
+    image: apifunkos
+    build:
+      context: .
+      dockerfile: ApiFunkos/Dockerfile
+    ports:
+      - "8080:8080"
