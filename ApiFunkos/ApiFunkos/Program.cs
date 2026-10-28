@@ -1,24 +1,63 @@
-using System.Text.Json.Serialization;
-using ApiFunkos.Factories;
-using ApiFunkos.Repositories;
-using ApiFunkos.Routes;
+using System.Text;
+using ApiFunkos.Config;
+using ApiFunkos.Entity;
+using ApiFunkos.Infrastructure;
+using Microsoft.EntityFrameworkCore;
+using Serilog;
+using static System.Console;
 
-var builder = WebApplication.CreateBuilder(args);
+OutputEncoding = Encoding.UTF8;
+Title = "ApiFunkos";
 
-builder.Services.ConfigureHttpJsonOptions(options => {
-    options.SerializerOptions.Converters.Add(
-        new JsonStringEnumConverter()
-    );
-});
+try {
+    var builder = WebApplication.CreateBuilder(args);
+    FunkoConfig.Init(args);
 
-builder.Services.AddSingleton<IFunkoRepository, FunkoRepository>();
+    builder.Host.UseSerilog((context, config) => config.ReadFrom.Configuration(context.Configuration));
 
-var app = builder.Build();
+    builder.Services.AddControllers();
 
-var repository = app.Services.GetRequiredService<IFunkoRepository>();
+    if (FunkoConfig.RepositoryName.Equals("SQLite", StringComparison.OrdinalIgnoreCase)) {
+        Directory.CreateDirectory(FunkoConfig.DataFolder);
+        builder.Services.AddDbContext<AppDbContext>(opt => opt.UseSqlite(FunkoConfig.DbConnection));
+    }
+    else {
+        builder.Services.AddDbContext<AppDbContext>(opt => opt.UseNpgsql(FunkoConfig.DbConnection));
+    }
 
-await FunkoFactory.Seed(repository);
+    builder.Services.AddDependencies();
 
-app.MapFunkoRoutes();
+    var app = builder.Build();
 
-app.Run();
+    await InitializeDatabaseAsync(app.Services);
+
+    MostrarCabecera();
+
+    app.UseHttpsRedirection();
+    app.MapControllers();
+
+    await app.RunAsync();
+}
+catch (Exception) {
+    // ignored
+}
+
+return;
+
+static async Task InitializeDatabaseAsync(IServiceProvider provider) {
+    using var scope = provider.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    await db.Database.EnsureCreatedAsync();
+}
+
+static void MostrarCabecera() {
+    WriteLine();
+    WriteLine("┌────────────────────────────────────────────────┐");
+    WriteLine("│         ApiFunkos - Servidor Web Activo        │");
+    WriteLine("└────────────────────────────────────────────────┘");
+    WriteLine();
+    WriteLine($" Entorno / API:  {FunkoConfig.ApiName}");
+    WriteLine($" Repositorio:    {FunkoConfig.RepositoryName}");
+    WriteLine($" Ruta Datos:     {FunkoConfig.DataFolder}");
+    WriteLine();
+}
